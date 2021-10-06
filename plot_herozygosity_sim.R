@@ -1,0 +1,6 @@
+require(ggplot2)
+require(reshape2)
+test <- read.csv("N_year1.csv", sep = ",", header = T)
+df <- melt(test, id = "Year")
+summary(df)
+ggplot(df, aes(x = Year, y = value, color = variable)) + geom_line() + geom_point(size = 4) + xlab("Year") + ylab("Number of Individuals")

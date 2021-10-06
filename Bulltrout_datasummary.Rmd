@@ -1,0 +1,207 @@
+---
+title: "Example of Bull Trout CDmetaPOP output Data analysis"
+author: "Jameson Hinkle"
+date: "March 15, 2017"
+output: 
+  pdf_document:
+    toc: yes
+  html_document:
+    fig_caption: yes
+    toc: yes
+---
+
+
+```{r include =FALSE}
+library(knitr)
+opts_chunk$set(warning=FALSE, message=FALSE)
+#revealjs::html_presentation
+#fig.width
+#fig.heigth
+```
+
+
+```{r include = TRUE}
+require(tidyverse)
+require(gstudio)
+require(ggmap)
+require(plyr)
+require(imager)
+require(raster)
+```
+
+## Demogenetic models of Bull Trout Reintroduction
+
+As stated in the manuscript, these data were generated using an individual-based, spatially explicit simulation model to evaluate how reintroduction strategies, life history variation, and riverscape structure (e.g. network toplogy) interact to infuence the demographic and genetic characteristics of reintroduced bull trout populations in three watersheds.  We have utilized CDmetaPOP for this, and this document describes a pipeline for evaluating not only the results of our particular model but also provides the framework for designing/implementing a simulation model for any species for metapopulation structure.
+
+See XXXX link for CDmetaPOP website for further information on how to conduct reintroduction simulations.
+
+##  Description of model parameters
+
+The purpose of this document is not to describe how we derived the parameters for the demogenetic model but how to analyze the data from the output of this model.  The model parameters itself were derived from life history knowledge and/or ecological models previously noted in the species' literature.  In order to apply this to any species with metapopulation structure, one will have to consider these life history and ecological parameters appropriately and perform senstivity analysis around these parameters to see if the model parameters appropriately fit the life history.  See manuscript for details.
+
+Also see XXXX link for CDmetaPOP details.
+
+## Figure 1
+
+Figure 1 A-C was generated via GIS and image sourcing (online?).  Figure D was generated via R version 
+
+```{r, echo = TRUE}
+## get Jake's code
+
+```
+
+## Figure 2
+
+Figure 2 is a display of population size throughout simulation time under Riverine (IBD) and Barrier scenarios.  We have included the output images here as an example of the outcome of these simulations however, these are generated as summary data within CDmetaPop.  See XXXX link, page X in CDmetaPOP usermanual for details 
+
+```{r, echo = TRUE}
+# get image from Casey
+```
+
+
+
+## Building a single mini database.
+
+It is also important to note that at this point, the data from CDmetaPop are in separate folders and files.  To make working with these data easier, we built a looping structure that contructs a single tibble containing all the data from the simulation.  We will use this tibble for reference for Figures 3, 4, and 5.    
+
+```{r, echo = TRUE}
+source("private_alleles.r")  ## put pathname where the "private_alleles.r" file is located within quotation marks
+
+data.dir <- "/Users/jamesonhinkle/Desktop/ms1_focal_scenarios/"        ## change text within quotes to the pathname that houses all of the input data (batch folders)
+out.dir <-   "/Users/jamesonhinkle/Desktop/folders/vcu/landscape genetics/R code/landscape/privateallele/"   ## change to the location in which you would like to output data for the run  ***CHANGE FOR EACH SURFACE***
+plot.dir <- out.dir # "/Users/jamesonhinkle/Desktop/folders/vcu/landscape genetics/R code/landscape/abundance_plots/"                                ## location to output occupancy maps, occupancy rates plots, and private allele plots
+wshed <- read_csv("WatershedIDsublevels.csv") ## input watershed file to get barrier group information and RGB codes
+popvars <- read_csv("Patchvars_BT_FullAD_2K_EM_0001.csv")  ##read in popvars file, used to count the initial stocking locations
+popvars$Population <- popvars$Subpopulation##create join field 
+wat.df <-data_frame(Population=as.numeric(wshed$FID)+1, ## corrects FID's to corrspond with the patch IDs in popvars and genepop files
+                    watershed=wshed$watershed,          ## holds watershed group information --> "Sullivan," "Le Clerc," "Tacoma," or "PendOreilleMS"
+                    patch.x=wshed$POINT_X, patch.y=wshed$POINT_Y,
+                    extbar=as.character(wshed$extbarrsub), futbar=as.character(wshed$futbarrsub), ##read these columns in as character vector so that they can be used as a strata field. won't allow strata fields using numeric vectors. 
+                    ColID=wshed$ColorID, RGB=wshed$RGB)   ## houses hexadecimal values used for plotting
+wat.df <- inner_join(wat.df, popvars, by = "Population")
+wat.df$Population <- as.character(wat.df$Population)
+
+species <- "_BT"          
+date <- Sys.Date()
+file.ext <- ".gen"
+
+gen.seq <-  c(199) #0,1,2,3,4,5,10,15,20,25,30,40,50,60,70,80,90,91,92,93,94,95,96,97,98,99,100,110,120,130,140,150,160,170,180,190,199
+batch.seq <- c(6,66) # c(1,2)#0:11     #0-11 for full AD   ## 0-59 for riverine; 60-119 for existing barrs; 120-179 for future barriers  ***CHANGE FOR EACH SURFACE***
+mcrun.seq <- 0    # 0:9                      ## starting and ending value for mcruns within each batch (e.g. mcrun0 through mcrun2 --> 0:2)
+
+# -----------------
+start.time = Sys.time() # Set timer for start of run
+
+#Set up output data frames
+start.time = Sys.time()
+gen.tidy <- data_frame()               ## create empty gen.tidy data frame for storing genetic information
+
+## Build tidyverse data frame with all data for resistance surface also, map_df()? look it up. broom:: for clean output table of model
+for(j in 1:length(batch.seq)){ ## loop over batches (demographic scenarios; e.g., 2K, Full AD, 0.001 stray rate)
+
+  for(m in 1:length(mcrun.seq)){ ##loop over mc runs within batches
+
+    for(k in 1:length(gen.seq)){ ##loop over generations within mcruns
+      # Set up input parameters
+      batch.no <- batch.seq[j]
+      gen <- gen.seq[k]
+      mc.no <- mcrun.seq[m]    
+      
+      batch <- paste("Batch", batch.no, sep="")   
+      mc0 <- paste("mcrun", mc.no, "/batchrun0mcrun0/", "genepop_ind", gen, sep="") 
+      
+      if(file.exists(paste(data.dir, batch, "/batchrun", batch.no, mc0, file.ext, sep = ""))) {    ## check to see if genepop file exists --> if yes, read in file and process it
+  
+        # how do I read this in a loop now?    ### IS THIS STILL A QUESTION THAT YOU HAVE OR NO? 
+        gen.df <- read_population(paste(data.dir, batch, "/batchrun", batch.no, mc0, file.ext, sep = ""), type="genepop")         ## read in genepop file
+        gen.df$Pop <- gen.df$Population
+        
+        # remove "pop" from read_population
+        for(id in 1:length(gen.df$Pop)){
+          gen.df$Population[id] <- as.numeric(unlist(strsplit(gen.df$Pop[id], "Pop-")))[2]     #removes the pop- identifier in the genepop files
+        }
+        
+        #make tibble
+        gen.tidyish <- as_data_frame(gen.df) 
+        gen.tidyishish <- inner_join(gen.tidyish, wat.df, by = "Population")
+        ## convert genepop file to data frame
+        
+        gen.tidy.inc <- mutate(gen.tidyishish, Batch = batch.seq[j], mcrun = mcrun.seq[m], gen = gen.seq[k])              ## add batch, mcrun, generation information
+        
+        gen.tidy <- bind_rows(gen.tidy, gen.tidy.inc)                                                                  ## make a tidyverse file to store ALL OF THE DATA!
+      } ## end if statement 
+      
+      print(gen)
+    } ##END GENERATION LOOP
+    
+    
+    ##Track progress
+    print(paste("Batch", batch.no, ", mcrun", mc.no, "-", "time elapsed:", round(difftime(Sys.time(), start.time, units='mins'), dig = 2), "min"))  
+  } ## END MCRUN LOOP
+  
+  
+  ## Track Progress
+  print(paste("Batch", batch.no, " Complete -", "time elapsed:", round(difftime(Sys.time(), start.time, units='mins'), dig = 2), "min")); print("___________________________________")
+} ## END BATCH LOOP
+```
+
+## Figure 3 and 4
+
+Diving deeper into the data, it important to know the location of and whether or not the populations are occupying part or all of the watershed through simulation time in the simulation space.  The results indicate percent years occupied in simulation time relative to watershed and location of barriers throughout the watershed based on stray rate.  The difference between figure 3 and figure 4 are simply between low and high K scenarios.  
+
+
+```{r, echo = TRUE}
+rawdata <- read.csv("MASSTEST_21315_summary.csv", sep = ",", header = T)
+
+rawdata$SQ <- log(rawdata$SQ)
+
+d <- rawdata[ rawdata$Content=="Std",]
+
+t <- rawdata[rawdata$Content == "Unknown" , ]
+
+p <- ggplot(d, aes(x = SQ, y = Cq)) + geom_point() + stat_smooth(method = lm)
+
+p + geom_point(aes(x=SQ, y = Cq), data = t[t$Content == "Unknown" , ], color = "red") + labs(title = "Standard Curve of CoxII qPCR for Atlantic Sturgeon") + theme_bw()
+```
+
+While technically I've chosen a limit of detection that could be considered incorrect (while the y intercept could be most accurate), I chose the last unknown point that fell on the curve predicted by qPCR.  The reason for this is because there are juvenile sturgeon that reside in the study area year round.  This is a conservative estimate to take this idea into account.
+
+## Identifying differential biomass (if any) throughout the study area.
+
+In order to identify which samples represent real biomass, we need to select all the samples with a Cq above the limit of detection (identified in the previous figure).  This happens to be 35.05482 or 32.3 ug/L.  
+
+```{r, echo = TRUE}
+
+real <- rawdata [ rawdata$Content == "Unkn" ,]
+
+data <- subset(real, Cq <= 35.05482, select = c(Well, Content,Cq, SQ)) #may have to adjust based on new biomass curve
+```
+
+Now that we have the values that represent true biomass, we can go back and change their Content to "Real" which, for all intensive purposes, represents real biomass of Atlantic Sturgeon present.  We will then read in the new data frame, and plot the data with colors coded for real vs. not real differential biomass throughout the study area.
+
+```{r, echo = TRUE}
+qpcr <- read.csv("masstest_21116.csv", sep = ",", header = T)
+
+qpcr$SQ <- log(qpcr$SQ)
+
+d <- qpcr[ qpcr$Content=="Std",]
+t <- qpcr[ qpcr$Content== "Unknown" ,]
+r <- qpcr[ qpcr$Content == "Real" ,]
+
+# grab only standards
+p <- ggplot(d, aes(x = SQ, y = Cq)) + geom_point() + stat_smooth(method = lm)
+# run lm on standards only
+p + geom_point( aes(x=SQ,y=Cq), data=qpcr[ qpcr$Content=="Unkn",],color="red") + geom_point(aes(x=SQ, y=Cq), data = qpcr[qpcr$Content=="Real" ,], color = "yellow") + labs(title = "Standard Curve of CoxII qPCR for Atlantic Sturgeon") + theme_bw()
+
+# set up equation and R^2 for plotting on graph
+m <- lm(d$Cq ~ d$SQ)
+a <- signif(coef(m)[1], digits = 4)
+b <- signif(coef(m)[2], digits = 4)
+R2 <- 0.99
+textlab <- paste("y = ",b,"x + ",a , ", R^2 = ", R2, sep="")
+
+p <- p + geom_point( aes(x=SQ,y=Cq),data=qpcr[ qpcr$Content=="Unkn",],color="red") + geom_point(aes(x=SQ, y=Cq), data = qpcr[qpcr$Content=="Real" ,], color = "yellow") + geom_text(aes(x = 21, y = 38, label = textlab), color="black", size=5, parse = FALSE) + theme_bw() + labs(title = "Atlantic Sturgeon Biomass Estimates, Fall 2015")
+```
+
+Now we can see that there are three separate (real) biomass measure throughout the sample area through fall 2015 but, it's hard to relate that many positive results to real biology.  We'll need to increase our resolution both temporally and spatially in order to discern this information.
+
